@@ -1,5 +1,6 @@
 import sys
 from PySide6 import QtCore
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QMessageBox, QLabel, QWidget, QLineEdit, QListWidgetItem, QTextEdit, QHBoxLayout, QVBoxLayout, QPushButton, QListWidget, QApplication, QGridLayout
 import rsa
 import datetime
@@ -21,6 +22,8 @@ class AppWidget(QWidget):
         self.layout.addWidget(self.chatLogWidgets)
 
 class ChatWidgets(QWidget):
+
+    clicked = Signal()
     def __init__(self, username, recipient):
         super().__init__()
 
@@ -55,6 +58,9 @@ class ChatWidgets(QWidget):
                     self.recipient, datetime.datetime.now().isoformat(), ciphertext))
         con.commit()
 
+        self.edit.clear()
+        self.clicked.emit()
+
 class ChatLogWidgets(QWidget):
     def __init__(self, username, recipient):
         super().__init__()
@@ -62,26 +68,51 @@ class ChatLogWidgets(QWidget):
         self.chatWidget = ChatWidgets(username, recipient)
         self.textEdit = QTextEdit()
         self.textEdit.isReadOnly = True
+        self.username = username
+        self.recipient = recipient
 
         res = cur.execute(
-            f"""SELECT sender, recipient, message FROM messages WHERE recipient = '{username}' or recipient = '{recipient}' and sender = '{username}' or sender = '{recipient}'""")
+            f"""SELECT sender, recipient, message FROM messages WHERE recipient = '{self.username}' or recipient = '{self.recipient}' and sender = '{self.username}' or sender = '{self.recipient}'""")
 
         for row in res.fetchall():
-
-            if username == row[1]:
+            if self.username == row[1]:
                 with open(row[1] + '_privatekey.pem', mode='rb') as f:
                     key = rsa.PrivateKey.load_pkcs1(f.read())
                     f.close()
                 message = rsa.decrypt(row[2], key)
                 self.textEdit.append(message.decode() + ": " + row[0])
-                self.textEdit.setAlignment(QtCore.Qt.AlignRight)
+                self.textEdit.setAlignment(Qt.AlignRight)
             else:
                 self.textEdit.append(row[0] + ": Encrypted")
-                self.textEdit.setAlignment(QtCore.Qt.AlignLeft)
+                self.textEdit.setAlignment(Qt.AlignLeft)
 
         self.layout = QVBoxLayout(self)
         self.layout.addWidget(self.textEdit)
         self.layout.addWidget(self.chatWidget)
+
+        button_refresh = QPushButton('Refresh')
+        button_refresh.clicked.connect(self.refresh_chat)
+        self.layout.addWidget(button_refresh)
+
+        self.chatWidget.clicked.connect(self.refresh_chat)
+
+    def refresh_chat(self):
+        self.textEdit.clear()
+
+        res = cur.execute(
+            f"""SELECT sender, recipient, message FROM messages WHERE recipient = '{self.username}' or recipient = '{self.recipient}' and sender = '{self.username}' or sender = '{self.recipient}'""")
+        for row in res.fetchall():
+            if self.username == row[1]:
+                with open(row[1] + '_privatekey.pem', mode='rb') as f:
+                    key = rsa.PrivateKey.load_pkcs1(f.read())
+                    f.close()
+                message = rsa.decrypt(row[2], key)
+                self.textEdit.append(message.decode() + ": " + row[0])
+                self.textEdit.setAlignment(Qt.AlignRight)
+            else:
+                self.textEdit.append(row[0] + ": Encrypted")
+                self.textEdit.setAlignment(Qt.AlignLeft)
+
 
 class UserListWidgets(QWidget):
     def __init__(self, username):
